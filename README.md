@@ -85,8 +85,8 @@ DataLoader (shuffle=True for train, False for test)
 - [x] Train / test split with correct per-split transforms
 - [x] DataLoader construction
 - [x] Batch visualisation
-- [ ] Model definition (InceptionV3 fine-tuning)
-- [ ] Training loop
+- [x] Model definition (InceptionV3 fine-tuning)
+- [x] Training loop
 - [ ] Evaluation & metrics
 - [ ] Deployment
 
