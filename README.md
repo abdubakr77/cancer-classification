@@ -1,4 +1,4 @@
-# 🔬 Cancer Image Classification — InceptionV3
+# 🔬 Cancer Image Classification — VGG16-BN
 
 ## 📌 Overview
 
@@ -11,7 +11,8 @@ A **PyTorch transfer-learning pipeline** that classifies breast-ultrasound image
 | 1 | Malignant |
 | 2 | Normal |
 
-The backbone is **InceptionV3** pretrained on ImageNet, fine-tuned for the 3-class task.
+The backbone is **VGG16 with Batch Normalisation** pretrained on ImageNet.  
+Only the final fully-connected layer is replaced to output 3 logits; all other weights are fine-tuned.
 
 ---
 
@@ -21,9 +22,10 @@ The backbone is **InceptionV3** pretrained on ImageNet, fine-tuned for the 3-cla
 |---------|------|
 | Python 3 | Language |
 | PyTorch | Model training & dataloading |
-| TorchVision | Pretrained model + transforms |
-| NumPy | Array utilities |
+| TorchVision | Pretrained VGG16-BN + transforms |
+| NumPy | Array utilities & index shuffling |
 | Matplotlib | Visualisation |
+| tqdm | Training progress bars |
 
 ---
 
@@ -31,47 +33,72 @@ The backbone is **InceptionV3** pretrained on ImageNet, fine-tuned for the 3-cla
 
 - **Source:** Breast Ultrasound Images Dataset (BUSI)
 - **Classes:** benign · malignant · normal
-- Each scan ships with a paired `_mask` PNG → masks are **filtered out** before training
-- Split: **80 % train / 20 % test** (index-based, deterministic)
+- Each scan ships with a paired `_mask` PNG → **masks are filtered out** before training
+- Indices are **shuffled before splitting** to ensure class balance across both splits
+- Split: **80 % train / 20 % test** (index-based)
 
 ---
 
 ## 🔄 Data Pipeline
 
 ```
-Raw ImageFolder
-      │
-      ▼
-Filter mask images          (keep only original scans)
-      │
-      ▼
+Raw ImageFolder (no transforms)
+        │
+        ▼
+Filter mask images          keep paths where "mask" not in path
+        │
+        ▼
+Shuffle valid indices       ensure class balance across splits
+        │
+        ▼
 80 / 20 index split
-      │
-      ├─► train_ds  ──► TRAIN_TRANSFORMS  (resize + jitter + blur + crop + tensor)
-      │
-      └─► test_ds   ──► TEST_TRANSFORMS   (resize + tensor only — no augmentation)
-      │
-      ▼
-DataLoader (shuffle=True for train, False for test)
+        │
+        ├─► train_ds ──► TRAIN_TRANSFORMS
+        │                 Resize(224) · ColorJitter · GaussianBlur
+        │                 RandomHorizontalFlip · ToTensor
+        │
+        └─► test_ds  ──► TEST_TRANSFORMS
+                          Resize(224) · ToTensor only
+        │
+        ▼
+DataLoader
+  train: shuffle=True  · batch=20
+  test:  shuffle=False · batch=20
 ```
 
 > **Why two `ImageFolder` calls?**  
 > `ImageFolder` stores a single transform for the whole dataset.  
-> Loading the folder twice — each with its own `Compose` — and assigning disjoint  
-> index slices via `Subset` is the cleanest way to guarantee augmentation is applied  
-> **only** to the training split.
+> Loading the same folder twice — each with its own `Compose` — and slicing  
+> disjoint indices via `Subset` guarantees augmentation is applied **only** to  
+> the training split, never to the test split.
+
+---
+
+## 🏗️ Model Architecture
+
+```
+VGG16-BN (ImageNet pretrained)
+    └── features          13 conv blocks + BN + MaxPool  [frozen pretrained]
+    └── avgpool           AdaptiveAvgPool2d
+    └── classifier
+            Linear(25088 → 4096) · ReLU · Dropout
+            Linear(4096  → 4096) · ReLU · Dropout
+            Linear(4096  → 3)    ← replaced for 3-class output
+```
 
 ---
 
 ## ⚙️ Hyperparameters
 
-| Parameter | Value |
-|-----------|-------|
-| Input size | 299 × 299 (InceptionV3 requirement) |
-| Batch size | 20 |
-| Epochs | 10 |
-| Optimiser | AdamW |
-| Classes | 3 |
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| Input size | 224 × 224 | VGG16 requirement |
+| Batch size | 20 | |
+| Max epochs | 20 | with early stopping |
+| Optimiser | AdamW | |
+| Learning rate | 1e-5 | low LR essential for fine-tuning |
+| Early stopping patience | 3 | stops if val loss stagnates |
+| Classes | 3 | benign · malignant · normal |
 
 ---
 
@@ -82,12 +109,16 @@ DataLoader (shuffle=True for train, False for test)
 - [x] Constants & transforms definition
 - [x] Dataset loading & random image visualisation
 - [x] Mask-image filtering
+- [x] Index shuffle before split (fixes class imbalance in splits)
 - [x] Train / test split with correct per-split transforms
 - [x] DataLoader construction
 - [x] Batch visualisation
-- [x] Model definition (InceptionV3 fine-tuning)
-- [x] Training loop
-- [ ] Evaluation & metrics
+- [x] VGG16-BN model definition & head replacement
+- [x] AdamW optimiser
+- [x] Training loop with early stopping & best-model checkpointing
+- [x] Learning curves (accuracy & loss)
+- [x] Test-set prediction grid (green = correct, red = wrong)
+- [ ] Confusion matrix & classification report
 - [ ] Deployment
 
 ---
@@ -102,5 +133,6 @@ DataLoader (shuffle=True for train, False for test)
 
 ```
 ├── Cancer_Image_Classification.ipynb   # Main notebook
+├── best_model.pth                      # Best checkpoint (saved during training)
 └── README.md                           # This file
 ```
