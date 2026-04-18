@@ -25,6 +25,7 @@ The final fully-connected layer is replaced to output 3 logits; all other weight
 | TorchVision | Pretrained VGG19-BN + transforms |
 | scikit-learn | Confusion matrix & classification report |
 | NumPy | Array utilities & index shuffling |
+| Pandas | Class distribution inspection |
 | Matplotlib / Seaborn | Visualisation |
 | tqdm | Training progress bars |
 
@@ -56,12 +57,10 @@ Shuffle valid indices       ensure class balance across splits
         │
         ├─► train_ds ──► TRAIN_TRANSFORMS
         │                 Resize(224) · ColorJitter · GaussianBlur
-        │                 RandomHorizontalFlip · RandomVerticalFlip
-        │                 RandomRotation(15) · RandomAffine
-        │                 ToTensor · Normalize(ImageNet stats)
+        │                 RandomHorizontalFlip · ToTensor
         │
         └─► test_ds  ──► TEST_TRANSFORMS
-                          Resize(224) · ToTensor · Normalize(ImageNet stats)
+                          Resize(224) · ToTensor
         │
         ▼
 DataLoader
@@ -89,6 +88,10 @@ VGG19-BN (ImageNet pretrained)
             Linear(4096  → 3)    ← replaced for 3-class output
 ```
 
+The model uses **inverse-frequency class weights** to handle the imbalanced BUSI dataset.
+Weights are computed from the training split and applied in the cross-entropy loss during training only.
+The evaluation phase uses unweighted loss to reflect true model performance.
+
 ---
 
 ## ⚙️ Hyperparameters
@@ -96,41 +99,12 @@ VGG19-BN (ImageNet pretrained)
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Input size | 224 × 224 | VGG19 requirement |
-| Batch size | 12 | Tuned for GPU memory |
+| Batch size | 12 | |
 | Max epochs | 50 | with early stopping |
-| Optimiser | AdamW | weight decay included |
+| Optimiser | AdamW | |
 | Learning rate | 1e-5 | low LR essential for fine-tuning |
-| LR scheduler | ReduceLROnPlateau | factor=0.5, patience=3 |
 | Early stopping patience | 5 | stops if val loss stagnates |
 | Classes | 3 | benign · malignant · normal |
-
----
-
-## 🛠️ Key Design Decisions
-
-**ImageNet Normalisation**
-VGG19 was pretrained on ImageNet using specific mean and std values per channel.
-Applying the same normalisation at inference time aligns the input distribution with
-what the model learned during pretraining, which significantly improves transfer performance.
-
-**Inverse-Frequency Class Weighting**
-BUSI is imbalanced — benign cases outnumber malignant and normal ones.
-Using unweighted cross-entropy causes the model to bias predictions toward the majority class.
-Weighting the loss by the inverse of each class's sample count forces equal attention across all three classes.
-The weights are computed from the training split only, never from the test split.
-
-**Weighted Loss in Training, Unweighted in Evaluation**
-The weighted loss is used during training to guide learning.
-During evaluation, unweighted cross-entropy is used so that the reported loss reflects true model performance rather than a weighted proxy.
-
-**LR Scheduling**
-A fixed learning rate that works well early in training can overshoot the optimum in later epochs.
-`ReduceLROnPlateau` halves the learning rate whenever validation loss stagnates for 3 consecutive epochs, allowing finer convergence without manual intervention.
-
-**Augmentation Strategy**
-BUSI contains approximately 780 valid scans — a small dataset for deep learning.
-Augmentations such as flips, rotation, affine shifts, and colour jitter increase the effective diversity of training samples and help prevent overfitting.
-All augmentations are clinically plausible for ultrasound imaging.
 
 ---
 
@@ -138,19 +112,18 @@ All augmentations are clinically plausible for ultrasound imaging.
 
 - [x] Project setup
 - [x] Library imports
-- [x] Constants & transforms definition (with ImageNet normalisation)
+- [x] Constants & transforms definition
 - [x] Dataset loading & random image visualisation
 - [x] Class distribution inspection
 - [x] Mask-image filtering
 - [x] Index shuffle before split (fixes class imbalance in splits)
 - [x] Train / test split with correct per-split transforms
+- [x] Class counts verification per split
 - [x] DataLoader construction
 - [x] Batch visualisation
-- [x] GPU / CPU device detection
 - [x] Inverse-frequency class weight computation
 - [x] VGG19-BN model definition & head replacement
 - [x] AdamW optimiser
-- [x] ReduceLROnPlateau scheduler
 - [x] Training loop with weighted loss, early stopping & best-model checkpointing
 - [x] Learning curves (accuracy & loss)
 - [x] Confusion matrix & classification report
@@ -163,15 +136,15 @@ All augmentations are clinically plausible for ultrasound imaging.
 | Metric | Value |
 |--------|-------|
 | Test Accuracy | 92% |
-| Best Val Accuracy | 94.87% (Epoch 9) |
+| Best Val Accuracy | 94.87% (Epoch 8) |
 | Epochs Trained | 17 (early stopping) |
 
-| Class | Precision | Recall | F1-Score |
-|-------|-----------|--------|----------|
-| Benign | 0.97 | 0.91 | 0.94 |
-| Malignant | 0.87 | 0.93 | 0.90 |
-| Normal | 0.86 | 0.95 | 0.90 |
-| **Weighted Avg** | **0.93** | **0.92** | **0.92** |
+| Class | Precision | Recall | F1-Score | Support |
+|-------|-----------|--------|----------|---------|
+| Benign | 0.97 | 0.91 | 0.94 | 92 |
+| Malignant | 0.87 | 0.93 | 0.90 | 44 |
+| Normal | 0.86 | 0.95 | 0.90 | 20 |
+| **Weighted Avg** | **0.93** | **0.92** | **0.92** | 156 |
 
 ---
 
